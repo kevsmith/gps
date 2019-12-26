@@ -1,6 +1,6 @@
 import Config
 
-config :gps, :device, "/dev/gps0"
+config :gps, :devices, ["/dev/gps0", "/dev/gps1", "/dev/gps2"]
 config :gps, :interval, 15000
 
 config :logger,

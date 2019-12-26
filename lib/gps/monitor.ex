@@ -61,7 +61,7 @@ defmodule Gps.Monitor do
   use GenServer
 
   def start_link([]) do
-    device = Application.get_env(:gps, :device, "/dev/gps0")
+    device = Application.get_env(:gps, :devices, ["/dev/gps0"])
     interval = Application.get_env(:gps, :interval, 5000)
 
     interval =
@@ -73,25 +73,26 @@ defmodule Gps.Monitor do
         interval
       end
 
-    Logger.debug(
-      "Starting Gps.Monitor using device #{device} with refresh interval #{interval}ms"
-    )
+    Logger.debug("Starting Gps.Monitor with refresh interval #{interval}ms")
 
     GenServer.start_link(__MODULE__, [device, interval], name: __MODULE__)
   end
 
   def current_position(), do: GenServer.call(__MODULE__, :position)
 
-  def init([device_name, interval]) do
-    case File.open(device_name, [:raw, :binary]) do
-      {:ok, f} ->
-        state = update_gps(%__MODULE__{gps: f})
-        Logger.info("Successfully retrieved initial GPS location: #{state.position}")
-        {:ok, tref} = :timer.send_interval(interval, :update_gps)
-        {:ok, %{state | timer: tref}}
+  def init([devices, interval]) do
+    case find_device(devices) do
+      nil ->
+        {:stop, {:error, :no_gps_device}}
 
       {:error, reason} ->
         {:stop, reason}
+
+      fd ->
+        state = update_gps(%__MODULE__{gps: fd})
+        Logger.info("Successfully retrieved initial GPS location: #{state.position}")
+        {:ok, tref} = :timer.send_interval(interval, :update_gps)
+        {:ok, %{state | timer: tref}}
     end
   end
 
@@ -104,6 +105,20 @@ defmodule Gps.Monitor do
     state = update_gps(state)
     Logger.debug("GPS location: #{state.position}")
     {:noreply, state}
+  end
+
+  defp find_device([]), do: nil
+
+  defp find_device([device | devices]) do
+    case File.open(device, [:binary, :raw]) do
+      {:error, reason} ->
+        Logger.info("GPS device #{device} failed: #{reason}")
+        find_device(devices)
+
+      {:ok, fd} ->
+        Logger.info("GPS device #{device} opened")
+        fd
+    end
   end
 
   defp update_gps(state) do
